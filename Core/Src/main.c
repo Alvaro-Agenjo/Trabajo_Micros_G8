@@ -82,9 +82,6 @@ void ProcessComp(uint8_t* raw_comp, int16_t* X_comp, int16_t* Y_comp, int16_t* Z
 void Lectura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 void Escritura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 
-void Lectura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
-void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -125,17 +122,16 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  //Failure_Reset();
+
   Init_Accel_Comp(0, Hz25, G2, Hz30, G4_7);
 
-  //uint8_t Rx_buf[2];
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //Lectura_compass(&hi2c1, Comp_Dir, 0x00, Rx_buf, 1);
+
 
 	  GetAccel(&X_ac, &Y_ac, &Z_ac);
 	  //GetComp(&X_comp, &Y_comp, &Z_comp);
@@ -351,9 +347,9 @@ void ProcessAccel(uint8_t* raw_accel, int16_t* X_accel, int16_t* Y_accel, int16_
 	Y_raw = (raw_accel[3]<<8)|raw_accel[2];
 	Z_raw = (raw_accel[5]<<8)|raw_accel[4];
 
-	*(X_accel) = X_raw * factor_accel[f_accel] / MAX_LSB * 1000;	//resultdo en mG
-	*(Y_accel) = Y_raw * factor_accel[f_accel] / MAX_LSB * 1000;
-	*(Z_accel) = Z_raw * factor_accel[f_accel] / MAX_LSB * 1000;
+	*(X_accel) = X_raw * 1000 * factor_accel[f_accel] / MAX_LSB;	//resultdo en mG
+	*(Y_accel) = Y_raw * 1000 * factor_accel[f_accel] / MAX_LSB;
+	*(Z_accel) = Z_raw * 1000 * factor_accel[f_accel] / MAX_LSB;
 }
 
 void GetComp(int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
@@ -363,7 +359,7 @@ void GetComp(int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
 }
 
 void GetCompRaw(uint8_t* raw_compass){
-	Lectura_compass(&hi2c1, Comp_Dir, Data_comp_dir, raw_compass, 6);
+	Lectura_accel(&hi2c1, Comp_Dir, Data_comp_dir, raw_compass, 6);
 }
 void ProcessComp(uint8_t* raw_compass, int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
 	int16_t X_raw, Y_raw, Z_raw;
@@ -396,24 +392,6 @@ void Lectura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, u
 
 	HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
 	HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
-}
-
-void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
-	uint16_t device = (address<<1);
-	uint8_t trama[2];
-
-	HAL_I2C_Master_Transmit(&hi2c1, device, trama, 2, HAL_MAX_DELAY);
-}
-void Lectura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
-	uint16_t device = address << 1;
-	uint8_t direccion = reg_dir;
-
-	HAL_StatusTypeDef status;
-		status = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-		if(status != HAL_OK){
-				HAL_Delay(20);
-			}
-	HAL_I2C_Master_Receive(&hi2c1, device | 0x01, msg, msg_size, HAL_MAX_DELAY);
 }
 /* USER CODE END 4 */
 
