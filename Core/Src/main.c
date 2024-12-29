@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <stdio.h>
+#include <math.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -31,6 +32,14 @@ typedef enum {G2 = 0b00, G4 = 0b01, G8 = 0b10, G16 = 0b11 } range_accel;
 typedef enum {G1_3 = 0b001, G1_9 = 010, G2_5 = 0b011, G4_0 = 0b100, G4_7 = 0b101, G5_6 = 0b110 ,G8_1 = 0b111} range_comp;
 typedef enum {Hz1 = 0b0001, Hz10 = 0b0010, Hz25 = 0b0011, Hz50 = 0b0100, Hz100 = 0b0101, Hz200 = 0b0110, Hz400 = 0b0111, Lp_def = 0b1000, Nr_def = 0b1001} ODR_accel;
 typedef enum {Hz0_75 = 0b000, Hz1_5 = 0b001, Hz3_0 = 0b010, Hz7_5 = 0b011, Hz15 = 0b100, Hz30 = 0b101, Hz75 = 0b110, Hz220 = 0b111} ODR_comp;
+
+typedef struct{
+	float X, Y, Z;
+}Deg;
+
+typedef struct{
+	int16_t X, Y, Z;
+}Data;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -71,10 +80,11 @@ static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp);
 
-
-void GetAccel(int16_t* X_accel, int16_t* Y_accel, int16_t* Z_accel);
+void CalibrateAccel(Data* accel);
+void GetAccel(Data* accel, Data offset);
 void GetAccelRaw(uint8_t* raw_accel);
-void ProcessAccel(uint8_t* raw_accel, int16_t* X_accel, int16_t* Y_accel, int16_t* Z_accel);
+void ProcessAccel(uint8_t* raw_accel, Data * accel);
+void Accel2Deg(Deg * deg, Data accel);
 
 void GetComp(int16_t* X_comp, int16_t* Y_comp, int16_t* Z_comp);
 void GetCompRaw(uint8_t* raw_comp);
@@ -89,9 +99,10 @@ void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_di
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int16_t X_ac, Y_ac, Z_ac;
+Data Accel, offset_accel;
 int16_t X_comp, Y_comp, Z_comp;
 
+Deg Deg_accel;
 HAL_StatusTypeDef status;
 /* USER CODE END 0 */
 
@@ -126,16 +137,18 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  //Init_Accel_Comp(0, Hz50, G2, Hz15, G4_0);
-  uint8_t RxBuf[2];
+  Init_Accel_Comp(0, Hz50, G2, Hz15, G4_0);
+  CalibrateAccel(&offset_accel);
+  //uint8_t RxBuf[2];
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  Lectura_compass(&hi2c1, 0b0011110, 0x00, RxBuf, 1);
-	  //GetAccel(&X_ac, &Y_ac, &Z_ac);
+	  //Lectura_compass(&hi2c1, 0b0011110, 0x00, RxBuf, 1);
+	  GetAccel(&Accel, offset_accel);
+	  Accel2Deg(&Deg_accel, Accel);
 	  //GetComp(&X_comp, &Y_comp, &Z_comp);
 	  HAL_Delay(200);
     /* USER CODE END WHILE */
@@ -333,28 +346,48 @@ void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_ac
 	}
 	}
 }
+void CalibrateAccel(Data * offset){
+	Data temp;
+	uint8_t raw_data[6];
+	const uint8_t max = 20;
 
+	offset->X = 0;	offset->Y = 0;	offset->Z = 0;
 
-
-void GetAccel(int16_t* X_accel, int16_t* Y_accel, int16_t* Z_accel){
+	for(int i = 0; i< max; i++){
+		GetAccelRaw(raw_data);
+		ProcessAccel(raw_data, &temp);
+		offset->X += temp.X;	offset->Y += temp.Y;	offset->Z += temp.Z;
+	}
+	offset->X /= max;	offset->Y /= max;	offset->Z /= max;
+	offset->X = 0- offset->X;	offset->Y = 0- offset->Y;	offset->Z = 1000- offset->Z;
+}
+void GetAccel(Data* accel, Data offset){
 	uint8_t raw_data[6];
 	GetAccelRaw(raw_data);
-	ProcessAccel(raw_data, X_accel, Y_accel, Z_accel);
+	ProcessAccel(raw_data, accel);
+
+	accel->X += offset.X;	accel->Y += offset.Y;	accel->Z += offset.Z;
 }
 
 void GetAccelRaw(uint8_t* raw_accel){
 	Lectura_accel(&hi2c1, Accel_Dir, Data_accel_dir, raw_accel, 6);
 }
-void ProcessAccel(uint8_t* raw_accel, int16_t* X_accel, int16_t* Y_accel, int16_t* Z_accel){
-	int16_t X_raw=0, Y_raw=0, Z_raw=0;
+void ProcessAccel(uint8_t* raw_accel, Data * accel){
+	Data raw;
 
-	X_raw = (raw_accel[1]<<8)|raw_accel[0];
-	Y_raw = (raw_accel[3]<<8)|raw_accel[2];
-	Z_raw = (raw_accel[5]<<8)|raw_accel[4];
+	raw.X = (raw_accel[1]<<8)|raw_accel[0];
+	raw.Y = (raw_accel[3]<<8)|raw_accel[2];
+	raw.Z = (raw_accel[5]<<8)|raw_accel[4];
 
-	*(X_accel) = X_raw * 1000 * factor_accel[f_accel] / MAX_LSB;	//resultdo en mG
-	*(Y_accel) = Y_raw * 1000 * factor_accel[f_accel] / MAX_LSB;
-	*(Z_accel) = Z_raw * 1000 * factor_accel[f_accel] / MAX_LSB;
+	accel->X = raw.X * 1000 * factor_accel[f_accel] / MAX_LSB;	//resultdo en mG
+	accel->Y = raw.Y * 1000 * factor_accel[f_accel] / MAX_LSB;
+	accel->Z = raw.Z * 1000 * factor_accel[f_accel] / MAX_LSB;
+}
+
+void Accel2Deg(Deg * deg, Data accel){
+	deg->X = atan(accel.Y / sqrt(accel.X * accel.X + accel.Z * accel.Z)) * 180.0 / 3.1416;
+	deg->Y = atan(-accel.X / sqrt(accel.Y * accel.Y + accel.Z * accel.Z)) * 180.0 / 3.1416;
+
 }
 
 void GetComp(int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
