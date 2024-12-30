@@ -44,6 +44,11 @@ typedef struct{
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
 #define Accel_Dir 0b0011001
 #define Comp_Dir 0b0011110
 
@@ -55,11 +60,6 @@ typedef struct{
 #define Data_comp_dir 0x03
 
 #define MAX_LSB 32768 //2^15
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -95,6 +95,7 @@ void Escritura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir,
 
 void Lectura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -137,18 +138,27 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  Init_Accel_Comp(0, Hz50, G2, Hz15, G4_0);
-  CalibrateAccel(&offset_accel);
-  //uint8_t RxBuf[2];
+  //Init_Accel_Comp(0, Hz50, G2, Hz15, G1_9);
+  //CalibrateAccel(&offset_accel);
+
+  uint8_t RxBuf[2];
+  uint8_t TxBuf[2];
+  TxBuf[0]= 0x00;	TxBuf[1] = 0x14;
+  status = HAL_I2C_Master_Transmit(&hi2c1, 0x3C, TxBuf, 2, HAL_MAX_DELAY);
+
+  TxBuf[0]= 0x02;	TxBuf[1] = 0x00;
+  status = HAL_I2C_Master_Transmit(&hi2c1, 0x3c, TxBuf, 2, HAL_MAX_DELAY);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //Lectura_compass(&hi2c1, 0b0011110, 0x00, RxBuf, 1);
-	  GetAccel(&Accel, offset_accel);
-	  Accel2Deg(&Deg_accel, Accel);
+
+	  TxBuf[0]= 0x00;	TxBuf[1] = 0x00;
+	  Lectura_compass(&hi2c1, Comp_Dir, TxBuf[0], RxBuf, 1);
+	  //GetAccel(&Accel, offset_accel);
+	  //Accel2Deg(&Deg_accel, Accel);
 	  //GetComp(&X_comp, &Y_comp, &Z_comp);
 	  HAL_Delay(200);
     /* USER CODE END WHILE */
@@ -258,7 +268,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp){
 	uint8_t i2c_TxBuf[2];
-	uint8_t i2c_RxBuf[2];
+	uint8_t i2c_RxBuf[3];
 	//init accel
 	i2c_TxBuf[0] = (Data_rate_accel<<4)|(low_power_mode<<3)|(0b111);
 	Escritura_accel(&hi2c1, Accel_Dir, Ctrl_accel_dir1, i2c_TxBuf, 1);
@@ -271,11 +281,9 @@ void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_ac
 	Escritura_accel(&hi2c1, Accel_Dir, Ctrl_accel_dir2, i2c_TxBuf, 1);
 
 
- /*
+/*
 	//init compas
-	Escritura_compass(&hi2c1, Comp_Dir, 0x02, 0x00, 1);
-
-	Lectura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_RxBuf, 2);
+	Lectura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_RxBuf, 3);
 	i2c_RxBuf[0] &= (0xff & ((data_rate_comp<<2)|0b11)) ;	//0b111-_--11
 	i2c_RxBuf[0] |= data_rate_comp<<2;						//0b000-_--00
 	i2c_TxBuf[0] = i2c_RxBuf[0];
@@ -283,9 +291,11 @@ void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_ac
 	i2c_RxBuf[1] &= ((sensitivity_comp<<5)|0b11111) ;	//0b---1_1111
 	i2c_RxBuf[1] |= sensitivity_comp<<5;				//0b---0_0000
 	i2c_TxBuf[1] = i2c_RxBuf[1];
-	Escritura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_TxBuf, 2);
-*/
 
+	i2c_RxBuf[1] &= (0xff &(0xfc)) ;	//0b1111_11--
+	i2c_TxBuf[2] = i2c_RxBuf[2];
+	Escritura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_TxBuf, 3);
+*/
 	switch(sensitivity_accel){
 	case G2:
 	{
@@ -368,7 +378,6 @@ void GetAccel(Data* accel, Data offset){
 
 	accel->X += offset.X;	accel->Y += offset.Y;	accel->Z += offset.Z;
 }
-
 void GetAccelRaw(uint8_t* raw_accel){
 	Lectura_accel(&hi2c1, Accel_Dir, Data_accel_dir, raw_accel, 6);
 }
@@ -420,7 +429,7 @@ void Escritura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir,
 	{
 		trama[0] = reg_dir+i;
 		trama[1] = *(msg+i);
-		status = HAL_I2C_Master_Transmit(&hi2c1, device, trama, 2, HAL_MAX_DELAY);
+		status = HAL_I2C_Master_Transmit(hi2c, device, trama, 2, HAL_MAX_DELAY);
 	}
 }
 void Lectura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
@@ -428,8 +437,8 @@ void Lectura_accel(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, u
 	uint8_t direccion = reg_dir;
 	if (msg_size > 1) direccion |= 0x80;
 
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-	status = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
+	status = HAL_I2C_Master_Transmit(hi2c, device, &direccion, 1, HAL_MAX_DELAY);
+	status = HAL_I2C_Master_Receive(hi2c, device, msg, msg_size, HAL_MAX_DELAY);
 }
 
 void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
@@ -440,16 +449,18 @@ void Escritura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_di
 	for(int i = 0; i< msg_size;i++){
 		trama[i+1] = msg[i];
 	}
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, trama, msg_size+1, HAL_MAX_DELAY);
+	status = HAL_I2C_Master_Transmit(hi2c, device, trama, msg_size+1, HAL_MAX_DELAY);
 
 }
 void Lectura_compass(I2C_HandleTypeDef *hi2c, uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
 	uint16_t device = (address<<1)|1;
 	uint8_t direccion = reg_dir;
+	if (msg_size > 1) direccion |= 0x80;
 
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-	status = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
+	status = HAL_I2C_Master_Transmit(hi2c, device, &direccion, 1, HAL_MAX_DELAY);
+	status = HAL_I2C_Master_Receive(hi2c, device, msg, msg_size, HAL_MAX_DELAY);
 }
+
 /* USER CODE END 4 */
 
 /**
