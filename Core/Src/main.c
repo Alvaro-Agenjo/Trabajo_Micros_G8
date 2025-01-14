@@ -70,9 +70,16 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 #define Data_comp_dir 0x03
 
 #define MAX_LSB 32768 //2^15
+
+#define Res_CAD 4095.0 //Resolución del CAD = 12 bits = 4096-1 valores
+#define VREF 3.3 //Voltaje de referencia = 3.3V
+#define Range_Deg 180.0 //Rango de grados [0-180]
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
@@ -97,7 +104,13 @@ HAL_StatusTypeDef status_; //auxiliar
 //////////////////////////////
 
 /*añadir aquí*/
-Deg pot;
+Deg Deg_pot;
+uint32_t Pot1_in;
+uint32_t Pot2_in;
+uint32_t Pot3_in;
+float Pot1_voltage;
+float Pot2_voltage;
+float Pot3_voltage;
 
 //////////////////////
 //		Servos		//
@@ -112,6 +125,7 @@ Deg pot;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void Luces(void);
@@ -137,12 +151,14 @@ void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t m
 void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size);
 
+void SlowMove(Deg* orient);
+
 //////////////////////////////
 //		Potenciómetros		//
 //////////////////////////////
 
 /*añadir aquí*/
-
+void CalculoDegPot(void);
 
 //////////////////////
 //		Servos		//
@@ -157,12 +173,30 @@ void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 volatile uint8_t flag_bt = 0;
-HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	if(GPIO_PIN == GPIO_PIN_0){
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if(GPIO_Pin == GPIO_PIN_0){
 		flag_bt = 1;
 		mode = !mode;
 	}
 }
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1){
+	if (hadc1->Instance == ADC1){
+		//Obtengo el valor de tensión convertido
+		Pot1_in = HAL_ADC_GetValue(hadc1); //channel 1
+		Pot2_in = HAL_ADC_GetValue(hadc1); //channel 3
+		Pot3_in = HAL_ADC_GetValue(hadc1); //channel 5
+
+		//Comprobación de voltaje correcto: 12 bits = 4095 valores, Vref=3.3V
+		Pot1_voltage = (Pot1_in / Res_CAD) * VREF;
+		Pot2_voltage = (Pot2_in / Res_CAD) * VREF;
+		Pot3_voltage = (Pot3_in / Res_CAD) * VREF;
+
+		//Reinicio conversión
+		//HAL_ADC_Start_IT(hadc1);
+	}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -195,6 +229,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_NVIC_DisableIRQ(EXTI0_IRQn);
@@ -204,6 +239,11 @@ int main(void)
   CalibrateAccel(&offset_accel);
 
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_ADC_Start_IT(&hadc1);
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -217,7 +257,8 @@ int main(void)
 	  {
 		  HAL_NVIC_DisableIRQ(EXTI0_IRQn);	//evita cambiar de modo durante la obtencion de datos
 		  if(mode == Potenciometro){
-
+			  //HAL_ADC_Start_IT(&hadc1);
+			  CalculoDegPot();
 			  orientacion = Deg_pot;
 		  }
 		  else if (mode == MEMS){
@@ -233,14 +274,14 @@ int main(void)
 
 
 	  /*Comprobación objetivo cumplido*/
-	  if(mode == MEMS && Diff(Deg_MEMS, Deg_pot)){
-		  Luces();
-	  }
+//	  if(mode == MEMS && Diff(Deg_MEMS, Deg_pot)<=10){
+//		  Luces();
+//	  }
 
 	  HAL_Delay(200);
-	  /* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-	  /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
@@ -289,6 +330,76 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 3;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = 2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Rank = 3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -366,6 +477,9 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+//////////////////////////
+//		Sensores		//
+//////////////////////////
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp){
 	uint8_t i2c_TxBuf[2];
 	uint8_t i2c_RxBuf[3];
@@ -530,7 +644,7 @@ void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t 
 	{
 		trama[0] = reg_dir+i;
 		trama[1] = *(msg+i);
-		status = HAL_I2C_Master_Transmit(&hi2c1, device, trama, 2, HAL_MAX_DELAY);
+		status_ = HAL_I2C_Master_Transmit(&hi2c1, device, trama, 2, HAL_MAX_DELAY);
 	}
 }
 void Lectura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
@@ -538,8 +652,8 @@ void Lectura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg
 	uint8_t direccion = reg_dir;
 	if (msg_size > 1) direccion |= 0x80;
 
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-	status = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
+	status_ = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
+	status_ = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
 }
 
 void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
@@ -550,7 +664,7 @@ void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_
 	for(int i = 0; i< msg_size;i++){
 		trama[i+1] = msg[i];
 	}
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, trama, msg_size+1, HAL_MAX_DELAY);
+	status_ = HAL_I2C_Master_Transmit(&hi2c1, device, trama, msg_size+1, HAL_MAX_DELAY);
 
 }
 void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
@@ -558,9 +672,42 @@ void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t m
 	uint8_t direccion = reg_dir;
 	if (msg_size > 1) direccion |= 0x80;
 
-	status = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-	status = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
+	status_ = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
+	status_ = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
 }
+void SlowMove(Deg* orient){
+	Deg nulo = {0,0,0};
+	float factor = 0.9;
+	orient->X += nulo.X *(1-factor) + orient->X * factor;
+	//ejes Y Z ...
+
+	if(Diff(&nulo, orient))
+		flag_bt = 0;
+}
+
+uint8_t Diff(Deg* act, Deg* obj){return 1;}
+
+//////////////////////////////
+//		Potenciómetros		//
+//////////////////////////////
+void CalculoDegPot(){
+	//Paro conversión para evitar condiciones de carrera
+	HAL_ADC_Stop_IT(&hadc1);
+
+	//Conversión de señal CAD a grados del servo. Res_CAD = 12 bits = 4096-1 ; Range_Deg = 180º
+	Deg_pot.X = ( Pot1_in / Res_CAD ) * Range_Deg;
+	Deg_pot.Y = ( Pot2_in / Res_CAD ) * Range_Deg;
+	Deg_pot.Z = ( Pot3_in / Res_CAD ) * Range_Deg;
+
+	//Reanudo conversión
+	HAL_ADC_Start_IT(&hadc1);
+}
+
+
+//////////////////////
+//		Servos		//
+//////////////////////
+
 
 /* USER CODE END 4 */
 
