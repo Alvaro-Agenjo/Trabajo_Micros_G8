@@ -26,11 +26,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {G2 = 0b00, G4 = 0b01, G8 = 0b10, G16 = 0b11 } range_accel;
-typedef enum {G1_3 = 0b001, G1_9 = 010, G2_5 = 0b011, G4_0 = 0b100, G4_7 = 0b101, G5_6 = 0b110 ,G8_1 = 0b111} range_comp;
-typedef enum {Hz1 = 0b0001, Hz10 = 0b0010, Hz25 = 0b0011, Hz50 = 0b0100, Hz100 = 0b0101, Hz200 = 0b0110, Hz400 = 0b0111, Lp_def = 0b1000, Nr_def = 0b1001} ODR_accel;
-typedef enum {Hz0_75 = 0b000, Hz1_5 = 0b001, Hz3_0 = 0b010, Hz7_5 = 0b011, Hz15 = 0b100, Hz30 = 0b101, Hz75 = 0b110, Hz220 = 0b111} ODR_comp;
-
 typedef struct{
 	float X, Y, Z;
 }Deg;
@@ -38,6 +33,23 @@ typedef struct{
 typedef struct{
 	int16_t X, Y, Z;
 }Data;
+
+//////////////////////////
+//		Sensores		//
+//////////////////////////
+typedef enum {G2 = 0b00, G4 = 0b01, G8 = 0b10, G16 = 0b11 } range_accel;
+typedef enum {G1_3 = 0b001, G1_9 = 010, G2_5 = 0b011, G4_0 = 0b100, G4_7 = 0b101, G5_6 = 0b110 ,G8_1 = 0b111} range_comp;
+typedef enum {Hz1 = 0b0001, Hz10 = 0b0010, Hz25 = 0b0011, Hz50 = 0b0100, Hz100 = 0b0101, Hz200 = 0b0110, Hz400 = 0b0111, Lp_def = 0b1000, Nr_def = 0b1001} ODR_accel;
+typedef enum {Hz0_75 = 0b000, Hz1_5 = 0b001, Hz3_0 = 0b010, Hz7_5 = 0b011, Hz15 = 0b100, Hz30 = 0b101, Hz75 = 0b110, Hz220 = 0b111} ODR_comp;
+
+//////////////////////
+//		Botón		//
+//////////////////////
+
+typedef enum {Potenciometro = 0, MEMS} estado;
+
+
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -64,11 +76,36 @@ typedef struct{
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
+Deg orientacion;
+estado mode = Potenciometro;
+//////////////////////////
+//		Sensores		//
+//////////////////////////
 const int16_t factor_accel[4] = {2,4,8,16};
 const uint16_t factor_compXY[7] = {1100,855,670,450,400,330,230};
 const uint16_t factor_compZ[7] = {980,760,600,400,355,295,205};
 
 uint8_t f_accel, f_comp;
+Data Accel, offset_accel;
+Data Comp, offset_comp;
+Deg Deg_MEMS;
+
+HAL_StatusTypeDef status_; //auxiliar
+
+//////////////////////////////
+//		Potenciómetros		//
+//////////////////////////////
+
+/*añadir aquí*/
+Deg pot;
+
+//////////////////////
+//		Servos		//
+//////////////////////
+
+/*añadir aquí*/
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,6 +113,12 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
+
+void Luces(void);
+uint8_t Diff(Deg* act, Deg* obj);
+//////////////////////////
+//		Sensores		//
+//////////////////////////
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp);
 
 void CalibrateAccel(Data* accel);
@@ -94,15 +137,32 @@ void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t m
 void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size);
 
+//////////////////////////////
+//		Potenciómetros		//
+//////////////////////////////
+
+/*añadir aquí*/
+
+
+//////////////////////
+//		Servos		//
+//////////////////////
+
+/*añadir aquí*/
+
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-Data Accel, offset_accel;
-int16_t X_comp, Y_comp, Z_comp;
-
-Deg Deg_accel;
-HAL_StatusTypeDef status;
+volatile uint8_t flag_bt = 0;
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if(GPIO_PIN == GPIO_PIN_0){
+		flag_bt = 1;
+		mode = !mode;
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -136,31 +196,51 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  //Init_Accel_Comp(0, Hz50, G2, Hz15, G1_9);
-  //CalibrateAccel(&offset_accel);
 
-  uint8_t RxBuf[2];
-  uint8_t TxBuf[2];
-  TxBuf[0]= 0x00;	TxBuf[1] = 0x14;
-  status = HAL_I2C_Master_Transmit(&hi2c1, 0x3C, TxBuf, 2, HAL_MAX_DELAY);
+  HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+  //inicializaiones necesarias
 
-  TxBuf[0]= 0x02;	TxBuf[1] = 0x00;
-  status = HAL_I2C_Master_Transmit(&hi2c1, 0x3c, TxBuf, 2, HAL_MAX_DELAY);
+  Init_Accel_Comp(0, Hz50, G2, Hz15, G1_9);
+  CalibrateAccel(&offset_accel);
+
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  TxBuf[0]= 0x00;	TxBuf[1] = 0x00;
-	  Lectura_compass(Comp_Dir, TxBuf[0], RxBuf, 1);
-	  //GetAccel(&Accel, offset_accel);
-	  //Accel2Deg(&Deg_accel, Accel);
-	  //GetComp(&X_comp, &Y_comp, &Z_comp);
-	  HAL_Delay(200);
-    /* USER CODE END WHILE */
+	  if(flag_bt == 1 && mode == MEMS){
+		  SlowMove(&orientacion); //llevar a origen 0, 50 orientacion = 0.1 *0 +0.9 *orientacio
+	  }
+	  else
+	  {
+		  HAL_NVIC_DisableIRQ(EXTI0_IRQn);	//evita cambiar de modo durante la obtencion de datos
+		  if(mode == Potenciometro){
 
-    /* USER CODE BEGIN 3 */
+			  orientacion = Deg_pot;
+		  }
+		  else if (mode == MEMS){
+			  GetAccel(&Accel, offset_accel);
+			  Accel2Deg(&Deg_MEMS, Accel);
+
+			  orientacion = Deg_MEMS;
+		  }
+		  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+	  }
+	  /*Funcion que controla servos*/
+	  //añadir aquí
+
+
+	  /*Comprobación objetivo cumplido*/
+	  if(mode == MEMS && Diff(Deg_MEMS, Deg_pot)){
+		  Luces();
+	  }
+
+	  HAL_Delay(200);
+	  /* USER CODE END WHILE */
+
+	  /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
@@ -252,11 +332,34 @@ static void MX_I2C1_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PD12 PD13 PD14 PD15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -266,6 +369,7 @@ static void MX_GPIO_Init(void)
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp){
 	uint8_t i2c_TxBuf[2];
 	uint8_t i2c_RxBuf[3];
+
 	//init accel
 	i2c_TxBuf[0] = (Data_rate_accel<<4)|(low_power_mode<<3)|(0b111);
 	Escritura_accel(Accel_Dir, Ctrl_accel_dir1, i2c_TxBuf, 1);
