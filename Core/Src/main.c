@@ -111,6 +111,8 @@ uint32_t Pot3_in;
 float Pot1_voltage;
 float Pot2_voltage;
 float Pot3_voltage;
+uint8_t count_pot = 0;
+uint8_t flag_pot = 0;
 
 //////////////////////
 //		Servos		//
@@ -180,20 +182,30 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	}
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1){
-	if (hadc1->Instance == ADC1){
-		//Obtengo el valor de tensión convertido
-		Pot1_in = HAL_ADC_GetValue(hadc1); //channel 1
-		Pot2_in = HAL_ADC_GetValue(hadc1); //channel 3
-		Pot3_in = HAL_ADC_GetValue(hadc1); //channel 5
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc){
+	if (hadc->Instance == ADC1){
+		//Obtengo el valor de tensión convertido y comprobación de voltaje correcto (auxiliar): 12 bits = 4095 valores, Vref=3.3V
+		count_pot++;
+		if (count_pot == 1){
+			Pot1_in = HAL_ADC_GetValue(hadc); //channel 1
+			Pot1_voltage = (Pot1_in / Res_CAD) * VREF;
 
-		//Comprobación de voltaje correcto: 12 bits = 4095 valores, Vref=3.3V
-		Pot1_voltage = (Pot1_in / Res_CAD) * VREF;
-		Pot2_voltage = (Pot2_in / Res_CAD) * VREF;
-		Pot3_voltage = (Pot3_in / Res_CAD) * VREF;
+			HAL_ADC_Start_IT(hadc);
+		}
+		else if (count_pot == 2){
+			Pot2_in = HAL_ADC_GetValue(hadc); //channel 2
+			Pot2_voltage = (Pot2_in / Res_CAD) * VREF;
 
-		//Reinicio conversión
-		//HAL_ADC_Start_IT(hadc1);
+			HAL_ADC_Start_IT(hadc);
+		}
+		else if (count_pot == 3){
+			Pot3_in = HAL_ADC_GetValue(hadc); //channel 3
+			Pot3_voltage = (Pot3_in / Res_CAD) * VREF;
+
+			HAL_ADC_Stop_IT(hadc);
+			count_pot = 0;
+			flag_pot = 1;
+		}
 	}
 }
 
@@ -242,8 +254,6 @@ int main(void)
 
   HAL_ADC_Start_IT(&hadc1);
 
-
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -257,8 +267,9 @@ int main(void)
 	  {
 		  HAL_NVIC_DisableIRQ(EXTI0_IRQn);	//evita cambiar de modo durante la obtencion de datos
 		  if(mode == Potenciometro){
-			  //HAL_ADC_Start_IT(&hadc1);
-			  CalculoDegPot();
+			  if(flag_pot == 1){
+				  CalculoDegPot();
+			  }
 			  orientacion = Deg_pot;
 		  }
 		  else if (mode == MEMS){
@@ -371,9 +382,9 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+  sConfig.SamplingTime = ADC_SAMPLETIME_144CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -381,7 +392,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = 2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -390,7 +401,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Channel = ADC_CHANNEL_9;
   sConfig.Rank = 3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -449,8 +460,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
@@ -692,7 +703,7 @@ uint8_t Diff(Deg* act, Deg* obj){return 1;}
 //////////////////////////////
 void CalculoDegPot(){
 	//Paro conversión para evitar condiciones de carrera
-	HAL_ADC_Stop_IT(&hadc1);
+	//HAL_ADC_Stop_IT(&hadc1);
 
 	//Conversión de señal CAD a grados del servo. Res_CAD = 12 bits = 4096-1 ; Range_Deg = 180º
 	Deg_pot.X = ( Pot1_in / Res_CAD ) * Range_Deg;
@@ -700,6 +711,7 @@ void CalculoDegPot(){
 	Deg_pot.Z = ( Pot3_in / Res_CAD ) * Range_Deg;
 
 	//Reanudo conversión
+	flag_pot = 0;
 	HAL_ADC_Start_IT(&hadc1);
 }
 
