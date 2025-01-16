@@ -74,11 +74,13 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 #define Res_CAD 4095.0 //Resolución del CAD = 12 bits = 4096-1 valores
 #define VREF 3.3 //Voltaje de referencia = 3.3V
 #define Range_Deg 180.0 //Rango de grados [0-180]
+#define Num_Pot 3
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
 
@@ -99,18 +101,13 @@ Deg Deg_MEMS;
 
 HAL_StatusTypeDef status_; //auxiliar
 
+
 //////////////////////////////
 //		Potenciómetros		//
 //////////////////////////////
-
-/*añadir aquí*/
 Deg Deg_pot;
-uint32_t Pot1_in;
-uint32_t Pot2_in;
-uint32_t Pot3_in;
-float Pot1_voltage;
-float Pot2_voltage;
-float Pot3_voltage;
+uint32_t Pot_in[Num_Pot];
+uint8_t flag_pot = 0;
 
 //////////////////////
 //		Servos		//
@@ -124,6 +121,7 @@ float Pot3_voltage;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
@@ -156,8 +154,6 @@ void SlowMove(Deg* orient);
 //////////////////////////////
 //		Potenciómetros		//
 //////////////////////////////
-
-/*añadir aquí*/
 void CalculoDegPot(void);
 
 //////////////////////
@@ -180,20 +176,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	}
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1){
-	if (hadc1->Instance == ADC1){
-		//Obtengo el valor de tensión convertido
-		Pot1_in = HAL_ADC_GetValue(hadc1); //channel 1
-		Pot2_in = HAL_ADC_GetValue(hadc1); //channel 3
-		Pot3_in = HAL_ADC_GetValue(hadc1); //channel 5
-
-		//Comprobación de voltaje correcto: 12 bits = 4095 valores, Vref=3.3V
-		Pot1_voltage = (Pot1_in / Res_CAD) * VREF;
-		Pot2_voltage = (Pot2_in / Res_CAD) * VREF;
-		Pot3_voltage = (Pot3_in / Res_CAD) * VREF;
-
-		//Reinicio conversión
-		//HAL_ADC_Start_IT(hadc1);
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc){
+	if (hadc->Instance == ADC1){
+		flag_pot = 1;
 	}
 }
 
@@ -228,6 +213,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_I2C1_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
@@ -240,9 +226,7 @@ int main(void)
 
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
-  HAL_ADC_Start_IT(&hadc1);
-
-
+  HAL_ADC_Start_DMA(&hadc1, Pot_in, Num_Pot);
 
   /* USER CODE END 2 */
 
@@ -257,8 +241,9 @@ int main(void)
 	  {
 		  HAL_NVIC_DisableIRQ(EXTI0_IRQn);	//evita cambiar de modo durante la obtencion de datos
 		  if(mode == Potenciometro){
-			  //HAL_ADC_Start_IT(&hadc1);
-			  CalculoDegPot();
+			  if(flag_pot == 1){
+				  CalculoDegPot();
+			  }
 			  orientacion = Deg_pot;
 		  }
 		  else if (mode == MEMS){
@@ -356,13 +341,13 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ENABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 3;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -371,9 +356,9 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+  sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -381,7 +366,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = 2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -390,7 +375,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Channel = ADC_CHANNEL_9;
   sConfig.Rank = 3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -437,6 +422,22 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -449,8 +450,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
@@ -691,16 +692,14 @@ uint8_t Diff(Deg* act, Deg* obj){return 1;}
 //		Potenciómetros		//
 //////////////////////////////
 void CalculoDegPot(){
-	//Paro conversión para evitar condiciones de carrera
-	HAL_ADC_Stop_IT(&hadc1);
 
 	//Conversión de señal CAD a grados del servo. Res_CAD = 12 bits = 4096-1 ; Range_Deg = 180º
-	Deg_pot.X = ( Pot1_in / Res_CAD ) * Range_Deg;
-	Deg_pot.Y = ( Pot2_in / Res_CAD ) * Range_Deg;
-	Deg_pot.Z = ( Pot3_in / Res_CAD ) * Range_Deg;
+	Deg_pot.X = ( Pot_in[0] / Res_CAD ) * Range_Deg;
+	Deg_pot.Y = ( Pot_in[1] / Res_CAD ) * Range_Deg;
+	Deg_pot.Z = ( Pot_in[2] / Res_CAD ) * Range_Deg;
 
-	//Reanudo conversión
-	HAL_ADC_Start_IT(&hadc1);
+	//Reinicio bandera
+	flag_pot = 0;
 }
 
 
