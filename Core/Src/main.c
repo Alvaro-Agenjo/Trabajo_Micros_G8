@@ -76,7 +76,7 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 
 //Potenciómetros
 #define Res_CAD 4095.0 //Resolución del CAD = 12 bits = 4096-1 valores
-#define VREF 3.3 //Voltaje de referencia = 3.3V
+#define VREF 3 //Voltaje de referencia = 3.3V
 #define Range_Deg 180.0 //Rango de grados [0-180]
 #define Num_Pot 3
 
@@ -139,7 +139,10 @@ static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
-void Luces(diferencia d);
+void Luces(void);
+void LucesMEMS(diferencia d);
+void LucesPOT(void);
+
 diferencia Diff(Deg* act, Deg* obj);
 //////////////////////////
 //		Sensores		//
@@ -258,6 +261,7 @@ int main(void)
 				  CalculoDegPot();
 			  }
 			  orientacion = Deg_pot;
+			  Luces();
 		  }
 		  else if (mode == MEMS){
 			  GetAccel(&Accel, offset_accel);
@@ -271,12 +275,16 @@ int main(void)
 	  //añadir aquí
 
 
-	  /*Comprobación objetivo cumplido*/
-	  comp_tol = Diff(&Deg_MEMS, &Deg_pot);
-	  if( (mode == MEMS) && (comp_tol != XYZ_OUT_TOL) ){ //Si está en modo brújula y algun eje está dentro de rango/no hay fallo...
-		  Luces(comp_tol);
+	  if(mode == MEMS){ //Si está en modo brújula...
+		  /*Comprobación objetivo cumplido*/
+		  comp_tol = Diff(&Deg_MEMS, &Deg_pot);
+		  if(comp_tol == XYZ_IN_TOL){ //Si he llegado a objetivo, cambio de modo
+			  Luces();
+			  //RESET equivalente a pulsar botón RESET
+			  NVIC_SystemReset();
+		  }
+		  else { Luces(); }
 	  }
-	  else { Luces(XYZ_OUT_TOL); }
 
 	  HAL_Delay(200);
     /* USER CODE END WHILE */
@@ -719,7 +727,33 @@ diferencia Diff(Deg* act, Deg* obj){
 
 }
 
-void Luces(diferencia d){
+void Luces(void){
+
+	if (mode == Potenciometro){
+		LucesPOT();
+	}
+	else if (mode == MEMS){
+		LucesMEMS(comp_tol);
+	}
+}
+
+void LucesPOT(void){
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+	HAL_Delay(50);
+
+
+}
+
+void LucesMEMS(diferencia d){
+
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, 0);
 
 	switch(d){
 	case XYZ_IN_TOL:
@@ -738,10 +772,12 @@ void Luces(diferencia d){
 
 			HAL_Delay(200);
 		}
-		//Si has conseguido llegar a la posición, cambia modo Potenciometro
+		break;
 
-		mode = Potenciometro;
-
+	case XYZ_OUT_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
 		break;
 
 	case YZ_IN_TOL:
