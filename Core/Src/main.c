@@ -42,6 +42,9 @@ typedef enum {G1_3 = 0b001, G1_9 = 010, G2_5 = 0b011, G4_0 = 0b100, G4_7 = 0b101
 typedef enum {Hz1 = 0b0001, Hz10 = 0b0010, Hz25 = 0b0011, Hz50 = 0b0100, Hz100 = 0b0101, Hz200 = 0b0110, Hz400 = 0b0111, Lp_def = 0b1000, Nr_def = 0b1001} ODR_accel;
 typedef enum {Hz0_75 = 0b000, Hz1_5 = 0b001, Hz3_0 = 0b010, Hz7_5 = 0b011, Hz15 = 0b100, Hz30 = 0b101, Hz75 = 0b110, Hz220 = 0b111} ODR_comp;
 
+//Tolerancia en comparación, Diff
+typedef enum {XYZ_OUT_TOL = 0, X_IN_TOL = 1, Y_IN_TOL = 2, Z_IN_TOL = 3, XY_IN_TOL = 4, XZ_IN_TOL = 5, YZ_IN_TOL = 6, XYZ_IN_TOL = 7} diferencia;
+
 //////////////////////
 //		Botón		//
 //////////////////////
@@ -71,10 +74,14 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 
 #define MAX_LSB 32768 //2^15
 
+//Potenciómetros
 #define Res_CAD 4095.0 //Resolución del CAD = 12 bits = 4096-1 valores
-#define VREF 3.3 //Voltaje de referencia = 3.3V
+#define VREF 3 //Voltaje de referencia = 3.3V
 #define Range_Deg 180.0 //Rango de grados [0-180]
 #define Num_Pot 3
+
+//Diff+Luces
+#define tolerance 5 //tolerancia en grados +-º
 
 /* USER CODE END PM */
 
@@ -100,6 +107,12 @@ Data Comp, offset_comp;
 Deg Deg_MEMS;
 
 HAL_StatusTypeDef status_; //auxiliar
+
+float diff_x; //valores comparados en función Diff
+float diff_y;
+float diff_z;
+diferencia comp_tol;
+uint8_t aux_luces = 0;
 
 
 //////////////////////////////
@@ -127,7 +140,10 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void Luces(void);
-uint8_t Diff(Deg* act, Deg* obj);
+void LucesMEMS(diferencia d);
+void LucesPOT(void);
+
+diferencia Diff(Deg* act, Deg* obj);
 //////////////////////////
 //		Sensores		//
 //////////////////////////
@@ -245,6 +261,7 @@ int main(void)
 				  CalculoDegPot();
 			  }
 			  orientacion = Deg_pot;
+			  Luces();
 		  }
 		  else if (mode == MEMS){
 			  GetAccel(&Accel, offset_accel);
@@ -258,10 +275,16 @@ int main(void)
 	  //añadir aquí
 
 
-	  /*Comprobación objetivo cumplido*/
-//	  if(mode == MEMS && Diff(Deg_MEMS, Deg_pot)<=10){
-//		  Luces();
-//	  }
+	  if(mode == MEMS){ //Si está en modo brújula...
+		  /*Comprobación objetivo cumplido*/
+		  comp_tol = Diff(&Deg_MEMS, &Deg_pot);
+		  if(comp_tol == XYZ_IN_TOL){ //Si he llegado a objetivo, cambio de modo
+			  Luces();
+			  //RESET equivalente a pulsar botón RESET
+			  NVIC_SystemReset();
+		  }
+		  else { Luces(); }
+	  }
 
 	  HAL_Delay(200);
     /* USER CODE END WHILE */
@@ -610,8 +633,8 @@ void ProcessAccel(uint8_t* raw_accel, Data * accel){
 }
 
 void Accel2Deg(Deg * deg, Data accel){
-	deg->X = atan(accel.Y / sqrt(accel.X * accel.X + accel.Z * accel.Z)) * 180.0 / 3.1416;
-	deg->Y = atan(-accel.X / sqrt(accel.Y * accel.Y + accel.Z * accel.Z)) * 180.0 / 3.1416;
+	deg->X = (atan(accel.Y / sqrt(accel.X * accel.X + accel.Z * accel.Z)) * 180.0 / 3.1416) + 90;
+	deg->Y = (atan(-accel.X / sqrt(accel.Y * accel.Y + accel.Z * accel.Z)) * 180.0 / 3.1416) + 90;
 
 }
 
@@ -677,16 +700,130 @@ void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t m
 	status_ = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
 }
 void SlowMove(Deg* orient){
-	Deg nulo = {0,0,0};
+	Deg nulo = {90,90,90};
 	float factor = 0.9;
-	orient->X += nulo.X *(1-factor) + orient->X * factor;
-	//ejes Y Z ...
+	orient->X = nulo.X *(1-factor) + orient->X * factor;
+	orient->Y = nulo.Y *(1-factor) + orient->Y * factor;
+	orient->Z = nulo.Z *(1-factor) + orient->Z * factor;
 
-	if(Diff(&nulo, orient))
-		flag_bt = 0;
+	if(Diff(&nulo, orient) == XYZ_IN_TOL){flag_bt = 0;}
 }
 
-uint8_t Diff(Deg* act, Deg* obj){return 1;}
+diferencia Diff(Deg* act, Deg* obj){
+	//Comparo valores
+	diff_x = fabs(act->X - obj->X); //fabs = float abs
+	diff_y = fabs(act->Y - obj->Y);
+	diff_z = fabs(act->Z - obj->Z);
+
+	if     ( (diff_x > tolerance) && (diff_y > tolerance) && (diff_z > tolerance) ) {return XYZ_OUT_TOL;}
+	else if( (diff_x < tolerance) && (diff_y < tolerance) && (diff_z < tolerance) ) {return XYZ_IN_TOL;}
+	else if( (diff_y < tolerance) && (diff_z < tolerance) ) {return YZ_IN_TOL;}
+	else if( (diff_x < tolerance) && (diff_z < tolerance) ) {return XZ_IN_TOL;}
+	else if( (diff_x < tolerance) && (diff_y < tolerance) ) {return XY_IN_TOL;}
+	else if( (diff_z < tolerance) ) {return Z_IN_TOL;}
+	else if( (diff_y < tolerance) ) {return Y_IN_TOL;}
+	else if( (diff_x < tolerance) ) {return X_IN_TOL;}
+	else {return XYZ_OUT_TOL;}
+
+}
+
+void Luces(void){
+
+	if (mode == Potenciometro){
+		LucesPOT();
+	}
+	else if (mode == MEMS){
+		LucesMEMS(comp_tol);
+	}
+}
+
+void LucesPOT(void){
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+	HAL_Delay(50);
+
+
+}
+
+void LucesMEMS(diferencia d){
+
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, 0);
+
+	switch(d){
+	case XYZ_IN_TOL:
+		for (int i=0; i<5; i++){
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 1); //X
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 1); //Y
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 1); //Z
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, 1);
+
+			HAL_Delay(200);
+
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0);
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0);
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0);
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, 0);
+
+			HAL_Delay(200);
+		}
+		break;
+
+	case XYZ_OUT_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
+		break;
+
+	case YZ_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 1); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 1); //Z
+		break;
+
+	case XZ_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 1); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 1); //Z
+		break;
+
+	case XY_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 1); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 1); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
+		break;
+
+	case Z_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 1); //Z
+		break;
+
+	case Y_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 1); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
+		break;
+
+	case X_IN_TOL:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 1); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
+		break;
+
+	default:
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, 0); //X
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, 0); //Y
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, 0); //Z
+		break;
+	}
+}
+
 
 //////////////////////////////
 //		Potenciómetros		//
