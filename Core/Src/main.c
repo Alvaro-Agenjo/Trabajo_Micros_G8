@@ -84,6 +84,8 @@ DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim1;
+
 /* USER CODE BEGIN PV */
 Deg orientacion;
 estado mode = Potenciometro;
@@ -113,8 +115,91 @@ uint8_t flag_pot = 0;
 //		Servos		//
 //////////////////////
 
-/*añadir aquí*/
+////////////////////INICIO FUERA DEL MAIN//////////////////////////////
+#include "stm32f4xx_hal.h"
 
+TIM_HandleTypeDef htim1; //puntero del temporizador
+void MX_GPIO_Init(void){ // Inicialización de la GPIO del TIM1
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+
+	GPIO_InitTypeDef GPIO_InitStruct={0};        // Inicializa con valores estándar
+	GPIO_InitStruct.Pin = GPIO_PIN_8;            // Se coloca en el pin8, PA8
+	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;      // Alternate function push pull
+	GPIO_InitStruct.Pull = GPIO_NOPULL;          // No pullup o pulldown
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // Baja freq es suficiente para el servo
+	GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;   // Función alternativa 1 del TIM1
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+}
+void MX_TIM1_Init(void){ // Inicializacion del temporizador
+	__HAL_RCC_TIM1_CLK_ENABLE();
+	htim1.Instance = TIM1;                         // Usamos el temporizador TIM1
+	htim1.Init.Prescaler = 96-1;                   // Prescaler, reduce de 96MHz a 1MHz
+	htim1.Init.CounterMode = TIM_COUNTERMODE_UP;   // Modo de conteo ascendente
+	htim1.Init.Period = 19999;                     // Periodo, ARR
+	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim1.Init.RepetitionCounter = 0;              // No se usa en PWM
+
+	if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) {
+	        // Manejo de error
+	        Error_Handler();
+	}
+}
+void MX_TIM1_PWM_Config(void){
+	TIM_OC_InitTypeDef sConfigOC={0};                // Inicializa con valores estándar, rellena todos los campos con 0
+
+	sConfigOC.OCMode = TIM_OCMODE_PWM1;
+	sConfigOC.Pulse = 1500;                          // Pulso estandar 90º, punto medio
+	sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+	sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+	if(HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1)!= HAL_OK){
+		// Manejo de error
+		Error_Handler();
+	}
+	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_1);
+}
+void Set_Servo_Angle(uint8_t angle){
+	uint16_t pulse;
+	bool of;
+	if (angle>180){
+		angle=180;  // Limita el ángulo máximo a 180º
+	}
+	pulse = 1000 + (angle*1000)/180;
+
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pulse);
+}
+////////////////////FIN FUERA DEL MAIN//////////////////////////////
+/*
+El ciclo de trabajo define la posición del servomotor.
+Para un PWM con un periodo de 20 ms:
+1 ms (ángulo mínimo, 0°): Esto equivale a un ciclo de trabajo del 5%.
+1.5 ms (ángulo neutro, 90°): Esto equivale a un ciclo de trabajo del 7.5%.
+2 ms (ángulo máximo, 180°): Esto equivale a un ciclo de trabajo del 10%
+*/
+/////////////////////INICIO DENTRO DEL MAIN////////////////////////////
+HAL_Init();
+SystemClock_Config();
+
+MX_GPIO_Init();
+MX_TIM1_Init();
+MX_TIM1_PWM_Config();
+while(1){
+	Set_Servo_Angle(0); // Se da la entrada en forma de ángulo y la propia función provoca la comunicación con el pwm
+	HAL_Delay(1000);
+
+	Set_Servo_Angle(60);
+	HAL_Delay(1000);
+
+	Set_Servo_Angle(120);
+	HAL_Delay(1000);
+
+	Set_Servo_Angle(180);
+	HAL_Delay(1000);
+
+	Set_Servo_Angle(0);
+	HAL_Delay(1000);
+}
+/////////////////////FIN DENTRO DEL MAIN////////////////////////////
 
 /* USER CODE END PV */
 
@@ -124,6 +209,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void Luces(void);
@@ -216,6 +302,7 @@ int main(void)
   MX_DMA_Init();
   MX_I2C1_Init();
   MX_ADC1_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_NVIC_DisableIRQ(EXTI0_IRQn);
@@ -308,7 +395,7 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
@@ -422,6 +509,81 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -451,6 +613,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
