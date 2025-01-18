@@ -142,6 +142,7 @@ static void MX_ADC1_Init(void);
 void Luces(void);
 void LucesMEMS(diferencia d);
 void LucesPOT(void);
+void LucesSlowMove(void);
 
 diferencia Diff(Deg* act, Deg* obj);
 //////////////////////////
@@ -250,8 +251,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(flag_bt == 1 && mode == MEMS){
-		  SlowMove(&orientacion); //llevar a origen 0, 50 orientacion = 0.1 *0 +0.9 *orientacio
+	  if(flag_bt == 1){ //Cambio de pulsado de botón Potenciómetro-MEMS viceversa
+		  if(mode == MEMS){
+			  SlowMove(&orientacion); //llevar a origen 90.90.0, 50 orientacion = 0.1 *0 +0.9 *orientacion
+			  Luces();
+		  }
+		  else{
+			  flag_bt = 0;
+		  }
 	  }
 	  else
 	  {
@@ -268,6 +275,15 @@ int main(void)
 			  Accel2Deg(&Deg_MEMS, Accel);
 
 			  orientacion = Deg_MEMS;
+
+			  /*Comprobación objetivo cumplido*/
+			  comp_tol = Diff(&Deg_MEMS, &Deg_pot);
+			  if(comp_tol == XYZ_IN_TOL){ //Si he llegado a objetivo, cambio de modo
+				  Luces();
+				  mode = Potenciometro;
+			  }
+			  else { Luces(); }
+
 		  }
 		  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 	  }
@@ -275,16 +291,6 @@ int main(void)
 	  //añadir aquí
 
 
-	  if(mode == MEMS){ //Si está en modo brújula...
-		  /*Comprobación objetivo cumplido*/
-		  comp_tol = Diff(&Deg_MEMS, &Deg_pot);
-		  if(comp_tol == XYZ_IN_TOL){ //Si he llegado a objetivo, cambio de modo
-			  Luces();
-			  //RESET equivalente a pulsar botón RESET
-			  NVIC_SystemReset();
-		  }
-		  else { Luces(); }
-	  }
 
 	  HAL_Delay(200);
     /* USER CODE END WHILE */
@@ -732,13 +738,23 @@ void Luces(void){
 	if (mode == Potenciometro){
 		LucesPOT();
 	}
-	else if (mode == MEMS){
+	else if (mode == MEMS && flag_bt == 0){
 		LucesMEMS(comp_tol);
+	}
+	else if (mode == MEMS && flag_bt == 1){
+		LucesSlowMove();
 	}
 }
 
-void LucesPOT(void){
+void LucesSlowMove(void){
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14);
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+	HAL_Delay(10);
+}
 
+void LucesPOT(void){
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
 	HAL_Delay(50);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
@@ -747,8 +763,6 @@ void LucesPOT(void){
 	HAL_Delay(50);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
 	HAL_Delay(50);
-
-
 }
 
 void LucesMEMS(diferencia d){
