@@ -701,6 +701,7 @@ Deg GetAngle(Data offset_accel, Data offset_comp)
 	GetComp(&comp, offset_comp);
 	Comp2Deg(&Deg, comp);
 
+	Deg.X += 90;	Deg.Y += 90;	Deg.Z += 90;
 	return Deg;
 }
 
@@ -742,8 +743,8 @@ void ProcessAccel(uint8_t* raw_accel, Data * accel){
 }
 
 void Accel2Deg(Deg * deg, Data accel){
-	deg->X = (atan(accel.Y / sqrt(accel.X * accel.X + accel.Z * accel.Z)) * 180.0 / 3.1416) + 90;
-	deg->Y = (atan(-accel.X / sqrt(accel.Y * accel.Y + accel.Z * accel.Z)) * 180.0 / 3.1416) + 90;
+	deg->X = (atan(accel.Y / sqrt(accel.X * accel.X + accel.Z * accel.Z)) * 180.0 / 3.1416);
+	deg->Y = (atan(-accel.X / sqrt(accel.Y * accel.Y + accel.Z * accel.Z)) * 180.0 / 3.1416);
 
 }
 
