@@ -69,8 +69,10 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 #define Ctrl_accel_dir2 0x23
 #define Data_accel_dir 0x28
 
-#define Ctrl_comp_dir 0x00
-#define Data_comp_dir 0x03
+#define Ctrl_comp_dir1    	0x00 // Registro de control CRA_REG_M
+#define Ctrl_comp_dir2    	0x02 // Registro de modo MR_REG_M
+#define Data_comp_dir		0x03 // Registro de salida X (bajo)
+
 
 #define MAX_LSB 32768 //2^15
 
@@ -104,8 +106,8 @@ const uint16_t factor_compXY[7] = {1100,855,670,450,400,330,230};
 const uint16_t factor_compZ[7] = {980,760,600,400,355,295,205};
 
 uint8_t f_accel, f_comp;
-Data Accel, offset_accel;
-Data Comp, offset_comp;
+Data offset_accel;
+Data offset_comp;
 Deg Deg_MEMS;
 
 HAL_StatusTypeDef status_; //auxiliar
@@ -153,23 +155,24 @@ diferencia Diff(Deg* act, Deg* obj);
 //////////////////////////
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp);
 
+Deg GetAngle(Data offset_accel, Data offset_comp);
+
 void CalibrateAccel(Data* accel);
 void GetAccel(Data* accel, Data offset);
 void GetAccelRaw(uint8_t* raw_accel);
 void ProcessAccel(uint8_t* raw_accel, Data * accel);
 void Accel2Deg(Deg * deg, Data accel);
 
-void GetComp(int16_t* X_comp, int16_t* Y_comp, int16_t* Z_comp);
-void GetCompRaw(uint8_t* raw_comp);
-void ProcessComp(uint8_t* raw_comp, int16_t* X_comp, int16_t* Y_comp, int16_t* Z_comp);
+void CalibrateComp(Data * offset);
+void GetComp(Data* comp, Data offset);
+void GetCompRaw(uint8_t* raw_compass);
+void ProcessComp(uint8_t* raw_comp, Data * comp);
+void Comp2Deg(Deg* result, Data comp);
 
-void Lectura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
-void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
+void Lectura (uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
+void Escritura (uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
 
-void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size);
-void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size);
 
-void SlowMove(Deg* orient);
 
 //////////////////////////////
 //		Potenciómetros		//
@@ -179,9 +182,7 @@ void CalculoDegPot(void);
 //////////////////////
 //		Servos		//
 //////////////////////
-
-/*añadir aquí*/
-
+void SlowMove(Deg* orient);
 
 
 /* USER CODE END PFP */
@@ -244,6 +245,7 @@ int main(void)
 
   Init_Accel_Comp(0, Hz50, G2, Hz15, G1_9);
   CalibrateAccel(&offset_accel);
+  CalibrateComp(&offset_comp);
 
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
@@ -275,9 +277,7 @@ int main(void)
 			  Luces();
 		  }
 		  else if (mode == MEMS){
-			  GetAccel(&Accel, offset_accel);
-			  Accel2Deg(&Deg_MEMS, Accel);
-
+			  Deg_MEMS = GetAngle(offset_accel, offset_comp);
 			  orientacion = Deg_MEMS;
 
 			  /*Comprobación objetivo cumplido*/
@@ -601,23 +601,26 @@ static void MX_GPIO_Init(void)
 //////////////////////////
 void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_accel sensitivity_accel, ODR_comp data_rate_comp, range_comp sensitivity_comp){
 	uint8_t i2c_TxBuf[2];
-	uint8_t i2c_RxBuf[3];
+	uint8_t i2c_RxBuf[2];
 
 	//init accel
 	i2c_TxBuf[0] = (Data_rate_accel<<4)|(low_power_mode<<3)|(0b111);
-	Escritura_accel(Accel_Dir, Ctrl_accel_dir1, i2c_TxBuf, 1);
+	Escritura(Accel_Dir, Ctrl_accel_dir1, i2c_TxBuf, 1);
 
 
-	Lectura_accel(Accel_Dir, Ctrl_accel_dir2, i2c_RxBuf, 1);
+	Lectura(Accel_Dir, Ctrl_accel_dir2, i2c_RxBuf, 1);
 	i2c_RxBuf[0] &= (0xff & ((sensitivity_accel<<4)|0b1111)) ;	//0b11--_1111
 	i2c_RxBuf[0] |= sensitivity_accel<<4;						//0b00--_0000
 	i2c_TxBuf[0] = i2c_RxBuf[0];
-	Escritura_accel(Accel_Dir, Ctrl_accel_dir2, i2c_TxBuf, 1);
+	Escritura(Accel_Dir, Ctrl_accel_dir2, i2c_TxBuf, 1);
 
 
-/*
+
 	//init compas
-	Lectura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_RxBuf, 3);
+	i2c_TxBuf[0] = 0x00;
+	Escritura(Comp_Dir, Ctrl_comp_dir2, i2c_TxBuf, 1);
+
+	Lectura(Comp_Dir, Ctrl_comp_dir1, i2c_RxBuf, 2);
 	i2c_RxBuf[0] &= (0xff & ((data_rate_comp<<2)|0b11)) ;	//0b111-_--11
 	i2c_RxBuf[0] |= data_rate_comp<<2;						//0b000-_--00
 	i2c_TxBuf[0] = i2c_RxBuf[0];
@@ -625,11 +628,8 @@ void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_ac
 	i2c_RxBuf[1] &= ((sensitivity_comp<<5)|0b11111) ;	//0b---1_1111
 	i2c_RxBuf[1] |= sensitivity_comp<<5;				//0b---0_0000
 	i2c_TxBuf[1] = i2c_RxBuf[1];
+	Escritura(Comp_Dir, Ctrl_comp_dir1, i2c_TxBuf, 2);
 
-	i2c_RxBuf[1] &= (0xff &(0xfc)) ;	//0b1111_11--
-	i2c_TxBuf[2] = i2c_RxBuf[2];
-	Escritura_accel(&hi2c1, Comp_Dir, Ctrl_comp_dir, i2c_TxBuf, 3);
-*/
 	switch(sensitivity_accel){
 	case G2:
 	{
@@ -690,6 +690,20 @@ void Init_Accel_Comp(uint8_t low_power_mode, ODR_accel Data_rate_accel, range_ac
 	}
 	}
 }
+Deg GetAngle(Data offset_accel, Data offset_comp)
+{
+	Deg Deg;
+	Data accel, comp;
+
+	GetAccel(&accel, offset_accel);
+	Accel2Deg(&Deg, accel);
+
+	GetComp(&comp, offset_comp);
+	Comp2Deg(&Deg, comp);
+
+	return Deg;
+}
+
 void CalibrateAccel(Data * offset){
 	Data temp;
 	uint8_t raw_data[6];
@@ -713,7 +727,7 @@ void GetAccel(Data* accel, Data offset){
 	accel->X += offset.X;	accel->Y += offset.Y;	accel->Z += offset.Z;
 }
 void GetAccelRaw(uint8_t* raw_accel){
-	Lectura_accel(Accel_Dir, Data_accel_dir, raw_accel, 6);
+	Lectura(Accel_Dir, Data_accel_dir, raw_accel, 6);
 }
 void ProcessAccel(uint8_t* raw_accel, Data * accel){
 	Data raw;
@@ -733,29 +747,54 @@ void Accel2Deg(Deg * deg, Data accel){
 
 }
 
-void GetComp(int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
+void CalibrateComp(Data * offset){
+	Data temp;
+	uint8_t raw_data[6];
+	const uint8_t max = 20;
+
+	offset->X = 0;	offset->Y = 0;	offset->Z = 0;
+
+	for(int i = 0; i< max; i++){
+		GetCompRaw(raw_data);
+		ProcessComp(raw_data, &temp);
+		offset->X += temp.X;	offset->Y += temp.Y;	offset->Z += temp.Z;
+	}
+	offset->X /= max;	offset->Y /= max;	offset->Z /= max;
+	offset->X = 0 - offset->X;	offset->Y = 0 - offset->Y;	offset->Z = 650 - offset->Z;
+	//revisar max intentisy de campo magnetico terrestre.
+}
+void GetComp(Data* comp, Data offset){
 	uint8_t raw_data[6];
 	GetCompRaw(raw_data);
-	ProcessComp(raw_data, X_compass, Y_compass, Z_compass);
-}
+	ProcessComp(raw_data, comp);
 
+	comp->X += offset.X;	comp->Y += offset.Y;	comp->Z += offset.Z;
+}
 void GetCompRaw(uint8_t* raw_compass){
-	Lectura_accel(Comp_Dir, Data_comp_dir, raw_compass, 6);
+	Lectura(Comp_Dir, Data_comp_dir, raw_compass, 6);
 }
-void ProcessComp(uint8_t* raw_compass, int16_t* X_compass, int16_t* Y_compass, int16_t* Z_compass){
-	int16_t X_raw, Y_raw, Z_raw;
+void ProcessComp(uint8_t* raw_comp, Data * comp){
+	Data raw;
 
-	X_raw = (raw_compass[0]<<8)|raw_compass[1];
-	Y_raw = (raw_compass[4]<<8)|raw_compass[5];
-	Z_raw = (raw_compass[2]<<8)|raw_compass[3];
+	raw.X = (raw_comp[1]<<8)|raw_comp[0];
+	raw.Y = (raw_comp[3]<<8)|raw_comp[2];
+	raw.Z = (raw_comp[5]<<8)|raw_comp[4];
 
-	*(X_compass) = X_raw / factor_compXY[f_comp];	//resultdo en Gauss
-	*(Y_compass) = Y_raw / factor_compXY[f_comp];
-	*(Z_compass) = Z_raw / factor_compZ[f_comp];
+	comp->X = raw.X * 1000 / factor_compXY[f_comp];	//resultdo en mG
+	comp->Y = raw.Y * 1000 / factor_compXY[f_comp];
+	comp->Z = raw.Z * 1000 / factor_compZ[f_comp];
+}
+
+void Comp2Deg(Deg *result, Data comp){
+	float Xm, Ym;
+	Xm = comp.X * cos(result->X) + comp.Z * sin(result->X);
+	Ym = comp.X * sin(result->Y)* sin(result->X) + comp.Y * cos(result->Y) - comp.Z * sin(result->Y)* cos(result->X);
+
+	result->Z = atan(Ym/Xm);
 }
 
 
-void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
+void Escritura(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
 	uint16_t device = (address<<1);
 	uint8_t trama[2];
 
@@ -766,7 +805,7 @@ void Escritura_accel(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t 
 		status_ = HAL_I2C_Master_Transmit(&hi2c1, device, trama, 2, HAL_MAX_DELAY);
 	}
 }
-void Lectura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
+void Lectura(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
 	uint16_t device = (address<<1)|1;
 	uint8_t direccion = reg_dir;
 	if (msg_size > 1) direccion |= 0x80;
@@ -775,25 +814,7 @@ void Lectura_accel(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg
 	status_ = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
 }
 
-void Escritura_compass(uint16_t address, uint8_t reg_dir, uint8_t * msg, uint16_t msg_size){
-	uint16_t device = (address<<1);//0b001_1110 = 3C
-	uint8_t trama[msg_size +1];
 
-	trama[0] = reg_dir;
-	for(int i = 0; i< msg_size;i++){
-		trama[i+1] = msg[i];
-	}
-	status_ = HAL_I2C_Master_Transmit(&hi2c1, device, trama, msg_size+1, HAL_MAX_DELAY);
-
-}
-void Lectura_compass(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size){
-	uint16_t device = (address<<1)|1;	//0b001_1110 | 1 = 0b0011_1101 = 3D
-	uint8_t direccion = reg_dir;
-	if (msg_size > 1) direccion |= 0x80;
-
-	status_ = HAL_I2C_Master_Transmit(&hi2c1, device, &direccion, 1, HAL_MAX_DELAY);
-	status_ = HAL_I2C_Master_Receive(&hi2c1, device, msg, msg_size, HAL_MAX_DELAY);
-}
 void SlowMove(Deg* orient){
 	Deg nulo = {90,90,90};
 	float factor = 0.9;
