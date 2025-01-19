@@ -776,9 +776,9 @@ void GetCompRaw(uint8_t* raw_compass){
 void ProcessComp(uint8_t* raw_comp, Data * comp){
 	Data raw;
 
-	raw.X = (raw_comp[1]<<8)|raw_comp[0];
-	raw.Y = (raw_comp[3]<<8)|raw_comp[2];
-	raw.Z = (raw_comp[5]<<8)|raw_comp[4];
+	raw.X = (raw_comp[0]<<8)|raw_comp[1];
+	raw.Y = (raw_comp[4]<<8)|raw_comp[5];
+	raw.Z = (raw_comp[2]<<8)|raw_comp[3];
 
 	comp->X = raw.X * 1000 / factor_compXY[f_comp];	//resultdo en mG
 	comp->Y = raw.Y * 1000 / factor_compXY[f_comp];
