@@ -873,13 +873,13 @@ void LucesSlowMove(void){
 
 void LucesPOT(void){
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
-	HAL_Delay(50);
+	HAL_Delay(20);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
-	HAL_Delay(50);
+	HAL_Delay(20);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14);
-	HAL_Delay(50);
+	HAL_Delay(20);
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
-	HAL_Delay(50);
+	HAL_Delay(20);
 }
 
 void LucesMEMS(diferencia d){
@@ -975,7 +975,7 @@ void CalculoDegPot(){
 //		Servos		//
 //////////////////////
 
-SetAngle(Deg obj) {
+void SetAngle(Deg obj) {
 	Data PWM = Angle2PWM(obj);
 	SetPWM(PWM);
 }
@@ -999,7 +999,7 @@ void SetPWM(Data output) {
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, output.X);
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, output.Y);
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, output.Z);
-	HAL_Delay(100);
+	HAL_Delay(500);
 }
 /* USER CODE END 4 */
 
