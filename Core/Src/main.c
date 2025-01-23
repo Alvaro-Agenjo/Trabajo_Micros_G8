@@ -82,7 +82,7 @@ typedef enum {Potenciometro = 0, MEMS} estado;
 
 //Potenciómetros
 #define Res_CAD 4095.0 //Resolución del CAD = 12 bits = 4096-1 valores
-#define VREF 3 //Voltaje de referencia = 3.3V
+#define VREF 3.3 //Voltaje de referencia = 3.3V
 #define Range_Deg 180.0 //Rango de grados [0-180]
 #define Num_Pot 3
 
