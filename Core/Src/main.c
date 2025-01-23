@@ -102,6 +102,7 @@ TIM_HandleTypeDef htim1;
 /* USER CODE BEGIN PV */
 Deg orientacion;
 estado mode = Potenciometro;
+const Deg NULO = {90,90,90};
 //////////////////////////
 //		Sensores		//
 //////////////////////////
@@ -186,7 +187,7 @@ void CalculoDegPot(void);
 //////////////////////
 //		Servos		//
 //////////////////////
-void SlowMove(Deg* orient);
+void SlowMove(Deg* orient, Deg ref);
 void SetAngle(Deg grados);
 Data Angle2PWM(Deg grados);
 void SetPWM(Data ms);
@@ -260,6 +261,8 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+
+	HAL_Delay(500);
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -268,11 +271,12 @@ int main(void)
 	{
 		if(flag_bt){ //Cambio de pulsado de botón Potenciómetro-MEMS viceversa
 			if(mode == MEMS){
-				SlowMove(&orientacion); //llevar a origen 90.90.0, 50 orientacion = 0.1 *0 +0.9 *orientacion
+				SlowMove(&orientacion, NULO); //llevar a origen 90.90.0, 50 orientacion = 0.1 *0 +0.9 *orientacion
 				Luces();
 			}
 			else{
-				flag_bt = 0;
+				//flag_bt = 0;
+				SlowMove(&orientacion, Deg_pot);
 			}
 		}
 		else
@@ -794,8 +798,8 @@ void ProcessComp(uint8_t* raw_comp, Data * comp){
 
 void Comp2Deg(Deg *result, Data comp){
 	float Xm, Ym;
-	Xm = comp.X * cos(result->X) + comp.Z * sin(result->X);
-	Ym = comp.X * sin(result->Y)* sin(result->X) + comp.Y * cos(result->Y) - comp.Z * sin(result->Y)* cos(result->X);
+	Xm = comp.X * cos(result->Y) + comp.Z * sin(result->Y);
+	Ym = comp.X * sin(result->X)* sin(result->Y) + comp.Y * cos(result->X) - comp.Z * sin(result->X)* cos(result->Y);
 
 	result->Z = atan(Ym/Xm);
 }
@@ -822,14 +826,13 @@ void Lectura(uint16_t address, uint8_t reg_dir, uint8_t *msg, uint16_t msg_size)
 }
 
 
-void SlowMove(Deg* orient){
-	Deg nulo = {90,90,90};
+void SlowMove(Deg* orient, Deg ref){
 	float factor = 0.9;
-	orient->X = nulo.X *(1-factor) + orient->X * factor;
-	orient->Y = nulo.Y *(1-factor) + orient->Y * factor;
-	orient->Z = nulo.Z *(1-factor) + orient->Z * factor;
+	orient->X = ref.X *(1-factor) + orient->X * factor;
+	orient->Y = ref.Y *(1-factor) + orient->Y * factor;
+	orient->Z = ref.Z *(1-factor) + orient->Z * factor;
 
-	if(Diff(&nulo, orient) == XYZ_IN_TOL){flag_bt = 0;}
+	if(Diff(&ref, orient) == XYZ_IN_TOL){flag_bt = 0;}
 }
 
 diferencia Diff(Deg* act, Deg* obj){
@@ -975,7 +978,7 @@ void CalculoDegPot(){
 //		Servos		//
 //////////////////////
 
-SetAngle(Deg obj) {
+void SetAngle(Deg obj) {
 	Data PWM = Angle2PWM(obj);
 	SetPWM(PWM);
 }
