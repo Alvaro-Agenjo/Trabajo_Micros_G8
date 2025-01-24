@@ -129,7 +129,6 @@ uint8_t aux_luces = 0;
 //////////////////////////////
 Deg Deg_pot;
 uint32_t Pot_in[Num_Pot];
-uint8_t flag_pot = 0;
 
 //////////////////////
 //		Servos		//
@@ -205,6 +204,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	}
 }
 
+volatile uint8_t flag_pot = 0;
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc){
 	if (hadc->Instance == ADC1){
 		flag_pot = 1;
